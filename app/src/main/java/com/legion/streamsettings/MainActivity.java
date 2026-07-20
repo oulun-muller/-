@@ -9,7 +9,9 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -34,7 +36,14 @@ final class SettingsSurface extends FrameLayout {
     SettingsSurface(Context c) {
         super(c);
         d = getResources().getDisplayMetrics().density;
-        setBackgroundColor(Color.rgb(8, 11, 15));
+        android.graphics.Bitmap bgBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.app_bg);
+        if (bgBitmap != null) {
+            BitmapDrawable bd = new BitmapDrawable(getResources(), bgBitmap);
+            bd.setGravity(android.view.Gravity.FILL);
+            setBackground(bd);
+        } else {
+            setBackgroundColor(Color.rgb(8, 11, 15));
+        }
         build(c);
     }
 
@@ -58,6 +67,11 @@ final class SettingsPanel extends FrameLayout {
     private final int textPrimary = Color.argb(230, 234, 247, 255);
     private final int textSecondary = Color.argb(204, 234, 247, 255);
     private final int textTertiary = Color.argb(102, 234, 247, 255);
+    private LinearLayout root;
+    private int bitrateIndex = 0;
+    private int frameRateIndex = 0;
+    private int customBitrate = 3;
+    private int pendingCustomBitrate = 3;
 
     SettingsPanel(Context c) {
         super(c);
@@ -90,29 +104,50 @@ final class SettingsPanel extends FrameLayout {
     }
 
     private void build(Context c) {
-        LinearLayout root = new LinearLayout(c);
+        root = new LinearLayout(c);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setClipToPadding(false);
         addView(root, new LayoutParams(-1, -1));
+        showMainPage();
+    }
 
+    private LinearLayout nav(Context c, String titleText, boolean back) {
         LinearLayout nav = new LinearLayout(c);
         nav.setGravity(Gravity.CENTER_VERTICAL);
         nav.setPadding(dp(12), 0, dp(12), 0);
-        root.addView(nav, new LinearLayout.LayoutParams(-1, dp(48)));
 
-        TextView title = text("设置", 14, textPrimary, 0);
+        FrameLayout left = new FrameLayout(c);
+        if (back) {
+            ImageView arrow = new ImageView(c);
+            arrow.setImageResource(R.drawable.ic_arrow_right);
+            arrow.setRotation(180f);
+            left.addView(arrow, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+            left.setOnClickListener(v -> showMainPage());
+        }
+        nav.addView(left, new LinearLayout.LayoutParams(dp(24), -1));
+
+        TextView title = text(titleText, 14, textPrimary, 0);
+        title.setGravity(Gravity.CENTER);
         nav.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-        FrameLayout closeHit = new FrameLayout(c);
-        ImageView close = new ImageView(c);
-        close.setImageResource(R.drawable.ic_close_large);
-        close.setAlpha(0.9f);
-        closeHit.addView(close, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
-        nav.addView(closeHit, new LinearLayout.LayoutParams(dp(24), -1));
 
+        FrameLayout right = new FrameLayout(c);
+        if (!back) {
+            ImageView close = new ImageView(c);
+            close.setImageResource(R.drawable.ic_close_large);
+            close.setAlpha(0.9f);
+            right.addView(close, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+        }
+        nav.addView(right, new LinearLayout.LayoutParams(dp(24), -1));
+        return nav;
+    }
+
+    private View divider(Context c) {
         View divider = new View(c);
         divider.setBackgroundColor(Color.argb(41, 255, 255, 255));
-        root.addView(divider, new LinearLayout.LayoutParams(-1, Math.max(1, dp(0.5f))));
+        return divider;
+    }
 
+    private LinearLayout contentHost(Context c, int topPadding) {
         FrameLayout body = new FrameLayout(c);
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -124,12 +159,8 @@ final class SettingsPanel extends FrameLayout {
 
         LinearLayout content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(12), dp(12), dp(12), dp(48));
+        content.setPadding(dp(12), dp(topPadding), dp(12), dp(48));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-
-        addWithGap(content, new DisplayCard(c), 0);
-        addWithGap(content, overlayCard(c, "键盘透明度", "100%", 1f, R.drawable.overlay_keyboard_bg, R.drawable.keyboard_material, true), 12);
-        addWithGap(content, overlayCard(c, "模拟手柄透明度", "80%", 0.8f, R.drawable.overlay_gamepad_bg, R.drawable.gamepad_material, false), 12);
 
         FadeFooter footer = new FadeFooter(c);
         LayoutParams footerParams = new LayoutParams(-1, dp(32), Gravity.BOTTOM);
@@ -137,6 +168,240 @@ final class SettingsPanel extends FrameLayout {
 
         PanelScrollBar scrollBar = new PanelScrollBar(c, scroll);
         body.addView(scrollBar, new LayoutParams(-1, -1));
+        return content;
+    }
+
+    private void showMainPage() {
+        Context c = getContext();
+        root.removeAllViews();
+        root.addView(nav(c, "设置", false), new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(divider(c), new LinearLayout.LayoutParams(-1, Math.max(1, dp(0.5f))));
+        LinearLayout content = contentHost(c, 12);
+        addWithGap(content, new DisplayCard(c), 0);
+        addWithGap(content, overlayCard(c, "键盘透明度", "100%", 1f, R.drawable.overlay_keyboard_bg, R.drawable.keyboard_material, true), 12);
+        addWithGap(content, overlayCard(c, "模拟手柄透明度", "80%", 0.8f, R.drawable.overlay_gamepad_bg, R.drawable.gamepad_material, false), 12);
+    }
+
+    private String bitrateValue() {
+        if (bitrateIndex == 1) return "清晰";
+        if (bitrateIndex == 2) return "高清";
+        if (bitrateIndex == 3) return "超清";
+        if (bitrateIndex == 4) return customBitrate + " Mbps";
+        return "自动";
+    }
+
+    private String frameRateValue() {
+        if (frameRateIndex == 1) return "90帧";
+        if (frameRateIndex == 2) return "90帧";
+        if (frameRateIndex == 3) return "144帧";
+        return "30帧";
+    }
+
+    private void showBitratePage() {
+        showOptionPage("码率（清晰度）", new OptionItem[]{
+                new OptionItem("自动", "根据网络状况智能调节"),
+                new OptionItem("清晰", "2 Mbps ｜ 适合弱网络"),
+                new OptionItem("高清", "8 Mbps ｜ 流畅清晰"),
+                new OptionItem("超清", "20 Mbps ｜ 极致画质")
+        }, true);
+    }
+
+    private void showFrameRatePage() {
+        showOptionPage("帧率（流畅度）", new OptionItem[]{
+                new OptionItem("30帧", "省流省电，适合文字办公"),
+                new OptionItem("90帧", "省流省电，适合文字办公"),
+                new OptionItem("90帧", "高度流畅，适合演示"),
+                new OptionItem("144帧", "高度流畅，适合演示")
+        }, false);
+    }
+
+    private void showOptionPage(String title, OptionItem[] items, boolean bitrate) {
+        Context c = getContext();
+        root.removeAllViews();
+        root.addView(nav(c, title, true), new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(divider(c), new LinearLayout.LayoutParams(-1, Math.max(1, dp(0.5f))));
+        LinearLayout content = contentHost(c, 0);
+        for (int i = 0; i < items.length; i++) {
+            final int index = i;
+            boolean showDivider = i < items.length - 1 || bitrate;
+            boolean selected = bitrate ? bitrateIndex == i : frameRateIndex == i;
+            content.addView(optionRow(c, items[i], selected, showDivider, null, () -> {
+                if (bitrate) {
+                    bitrateIndex = index;
+                    showBitratePage();
+                } else {
+                    frameRateIndex = index;
+                    showFrameRatePage();
+                }
+            }), new LinearLayout.LayoutParams(-1, dp(68)));
+        }
+        if (bitrate) {
+            content.addView(optionRow(c, new OptionItem("自定义", ""), bitrateIndex == 4, false, customBitrate + " Mbps", () -> {
+                pendingCustomBitrate = customBitrate;
+                showCustomBitratePicker();
+            }), new LinearLayout.LayoutParams(-1, dp(68)));
+        }
+    }
+
+    private View optionRow(Context c, OptionItem item, boolean selected, boolean divider, String customValue, Runnable action) {
+        LinearLayout row = new LinearLayout(c);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(12), 0, dp(12));
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setOnClickListener(v -> action.run());
+        FrameLayout radioBox = new FrameLayout(c);
+        radioBox.addView(new RadioDot(c, selected), new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+        row.addView(radioBox, new LinearLayout.LayoutParams(dp(24), dp(44)));
+
+        LinearLayout texts = new LinearLayout(c);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, dp(44), 1);
+        textsParams.leftMargin = dp(12);
+        row.addView(texts, textsParams);
+
+        TextView title = text(item.title, 16, textPrimary, Typeface.BOLD);
+        title.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        texts.addView(title, new LinearLayout.LayoutParams(-1, dp(22)));
+        if (item.subtitle.length() > 0) {
+            TextView sub = text(item.subtitle, 12, textTertiary, 0);
+            sub.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-1, dp(18));
+            subParams.topMargin = dp(2);
+            texts.addView(sub, subParams);
+        }
+
+        if (customValue != null) {
+            LinearLayout input = new LinearLayout(c);
+            input.setGravity(Gravity.CENTER_VERTICAL);
+            input.setPadding(dp(8), 0, dp(4), 0);
+            GradientDrawable inputBg = new GradientDrawable();
+            inputBg.setColor(Color.argb(10, 255, 255, 255));
+            inputBg.setStroke(Math.max(1, dp(0.5f)), Color.argb(13, 234, 247, 255));
+            inputBg.setCornerRadius(dp(2));
+            input.setBackground(inputBg);
+            TextView value = text(customValue, 12, textTertiary, 0);
+            input.addView(value, new LinearLayout.LayoutParams(0, -1, 1));
+            TextView sort = text("▲\n▼", 8, textTertiary, 0);
+            sort.setGravity(Gravity.CENTER);
+            input.addView(sort, new LinearLayout.LayoutParams(dp(16), -1));
+            row.addView(input, new LinearLayout.LayoutParams(dp(120), dp(32)));
+        }
+
+        return new RowWithDivider(c, row, divider);
+    }
+
+    private void showCustomBitratePicker() {
+        Context c = getContext();
+        FrameLayout shade = new FrameLayout(c);
+        shade.setClickable(true);
+        shade.setBackgroundColor(Color.argb(153, 0, 0, 0));
+        shade.setAlpha(0f);
+
+        LinearLayout dialog = new LinearLayout(c);
+        dialog.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{Color.rgb(65, 73, 82), Color.rgb(65, 73, 82)});
+        bg.setCornerRadius(dp(4));
+        bg.setStroke(Math.max(1, dp(0.5f)), Color.argb(77, 200, 199, 254));
+        dialog.setBackground(bg);
+
+        BitratePicker picker = new BitratePicker(c);
+        picker.setValue(pendingCustomBitrate);
+        dialog.addView(picker, new LinearLayout.LayoutParams(-1, dp(160)));
+
+        LinearLayout buttons = new LinearLayout(c);
+        buttons.setGravity(Gravity.CENTER_VERTICAL);
+        buttons.setPadding(dp(12), dp(12), dp(12), dp(12));
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.addView(dialogButton(c, "取消", Color.argb(38, 234, 247, 255), v -> removeView(shade)), buttonParams(0));
+        buttons.addView(dialogButton(c, "完成", Color.rgb(56, 110, 254), v -> {
+            customBitrate = picker.getValue();
+            pendingCustomBitrate = customBitrate;
+            bitrateIndex = 4;
+            removeView(shade);
+            showBitratePage();
+        }), buttonParams(8));
+        dialog.addView(buttons, new LinearLayout.LayoutParams(-1, dp(56)));
+
+        FrameLayout.LayoutParams dialogParams = new FrameLayout.LayoutParams(dp(240), dp(216), Gravity.CENTER);
+        shade.addView(dialog, dialogParams);
+        addView(shade, new LayoutParams(-1, -1));
+        shade.animate().alpha(1f).setDuration(160).start();
+    }
+
+    private LinearLayout.LayoutParams buttonParams(int leftMargin) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(32), 1);
+        params.leftMargin = dp(leftMargin);
+        return params;
+    }
+
+    private TextView dialogButton(Context c, String label, int color, View.OnClickListener listener) {
+        TextView button = text(label, 14, textPrimary, Typeface.BOLD);
+        button.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(2));
+        button.setBackground(bg);
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    private final class RowWithDivider extends FrameLayout {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean divider;
+
+        RowWithDivider(Context c, View content, boolean divider) {
+            super(c);
+            this.divider = divider;
+            setWillNotDraw(false);
+            addView(content, new LayoutParams(-1, -2));
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (!divider) return;
+            paint.setColor(Color.argb(13, 234, 247, 255));
+            canvas.drawRect(0, getHeight() - Math.max(1, dp(0.5f)), getWidth(), getHeight(), paint);
+        }
+    }
+
+    private final class RadioDot extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean selected;
+
+        RadioDot(Context c, boolean selected) {
+            super(c);
+            this.selected = selected;
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f;
+            float r = Math.min(getWidth(), getHeight()) / 2f - Math.max(1, dp(0.5f));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(1, dp(0.75f)));
+            paint.setColor(selected ? Color.rgb(69, 128, 255) : Color.argb(77, 234, 247, 255));
+            canvas.drawCircle(cx, cy, r, paint);
+            if (selected) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.rgb(69, 128, 255));
+                canvas.drawCircle(cx, cy, r, paint);
+                paint.setColor(Color.WHITE);
+                canvas.drawCircle(cx, cy, dp(3), paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+    }
+
+    private static final class OptionItem {
+        final String title;
+        final String subtitle;
+        OptionItem(String title, String subtitle) {
+            this.title = title;
+            this.subtitle = subtitle;
+        }
     }
 
     private final class StretchScrollView extends ScrollView {
@@ -355,9 +620,9 @@ final class SettingsPanel extends FrameLayout {
             rows.setPadding(dp(12), 0, dp(12), dp(12));
             addView(rows, new LinearLayout.LayoutParams(-1, -2));
 
-            rows.addView(settingRow("码率（清晰度）", "自动"), rowParams(0));
+            rows.addView(settingRow("码率（清晰度）", bitrateValue(), () -> showBitratePage()), rowParams(0));
             rows.addView(line(), lineParams());
-            rows.addView(settingRow("帧率（流畅度）", "30帧"), gapParams(dp(24)));
+            rows.addView(settingRow("帧率（流畅度）", frameRateValue(), () -> showFrameRatePage()), gapParams(dp(24)));
             rows.addView(line(), lineParams());
 
             TextView note = text("参数越高对网络的要求更高。当网络质量不满足所选参数时，实际效果会有所差异。", 12, textTertiary, 0);
@@ -388,9 +653,10 @@ final class SettingsPanel extends FrameLayout {
             return p;
         }
 
-        private LinearLayout settingRow(String left, String right) {
+        private LinearLayout settingRow(String left, String right, Runnable action) {
             LinearLayout row = new LinearLayout(getContext());
             row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setOnClickListener(v -> action.run());
             TextView leftText = text(left, 14, textSecondary, 0);
             leftText.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             row.addView(leftText, new LinearLayout.LayoutParams(0, dp(21), 1));
@@ -463,7 +729,10 @@ final class SettingsPanel extends FrameLayout {
 
     private final class PanelBorder extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        PanelBorder(Context c) { super(c); }
+        PanelBorder(Context c) {
+            super(c);
+            setClickable(false);
+        }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
@@ -474,6 +743,71 @@ final class SettingsPanel extends FrameLayout {
             paint.setColor(Color.argb(61, 255, 255, 255));
             canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset, dp(8), dp(8), paint);
             paint.setStyle(Paint.Style.FILL);
+        }
+    }
+
+    private final class BitratePicker extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int value = 3;
+        private float lastY;
+
+        BitratePicker(Context c) {
+            super(c);
+            setClickable(true);
+        }
+
+        int getValue() {
+            return value;
+        }
+
+        void setValue(int value) {
+            this.value = Math.max(1, Math.min(20, value));
+            invalidate();
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent event) {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                lastY = event.getY();
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                float dy = event.getY() - lastY;
+                if (Math.abs(dy) >= dp(18)) {
+                    int steps = Math.round(dy / dp(24));
+                    setValue(value - steps);
+                    lastY = event.getY();
+                }
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                float center = getHeight() / 2f;
+                int offset = Math.round((event.getY() - center) / dp(24));
+                if (Math.abs(offset) > 0) setValue(value + offset);
+                return true;
+            }
+            return true;
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            paint.setShader(null);
+            paint.setColor(Color.argb(61, 0, 0, 0));
+            canvas.drawRect(0, getHeight() / 2f - dp(16.5f), getWidth(), getHeight() / 2f + dp(16.5f), paint);
+
+            int[] sizes = {10, 12, 14, 16, 14, 12, 10};
+            int[] alphas = {61, 102, 204, 255, 204, 102, 61};
+            for (int i = -3; i <= 3; i++) {
+                int option = value + i;
+                if (option < 1 || option > 20) continue;
+                int slot = i + 3;
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTypeface(Typeface.DEFAULT);
+                paint.setTextSize(dp(sizes[slot]));
+                paint.setColor(Color.argb(alphas[slot], 234, 247, 255));
+                Paint.FontMetrics fm = paint.getFontMetrics();
+                float y = getHeight() / 2f + i * dp(24) - (fm.ascent + fm.descent) / 2f;
+                canvas.drawText(option + " Mbps", getWidth() / 2f, y, paint);
+            }
         }
     }
 
