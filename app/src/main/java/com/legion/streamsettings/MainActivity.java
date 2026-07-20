@@ -16,7 +16,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
+import android.widget.OverScroller;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -337,7 +339,7 @@ final class SettingsPanel extends FrameLayout {
     }
 
     private TextView dialogButton(Context c, String label, int color, View.OnClickListener listener) {
-        TextView button = text(label, 14, textPrimary, Typeface.BOLD);
+        TextView button = text(label, 14, textPrimary, Typeface.NORMAL);
         button.setGravity(Gravity.CENTER);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(color);
@@ -747,67 +749,168 @@ final class SettingsPanel extends FrameLayout {
     }
 
     private final class BitratePicker extends View {
+        private static final int MIN_VAL = 1;
+        private static final int MAX_VAL = 20;
+        private static final float ITEM_DP = 36f;
+
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private int value = 3;
-        private float lastY;
+        private final OverScroller scroller;
+        private VelocityTracker vt;
+
+        // Single source of truth: scrollY in pixels.
+        // scrollY = N * itemPx()  means value N is centered.
+        // Initially value=3 → scrollY = 3 * itemPx()
+        private float scrollY;
+        private float lastTouchY;
+        private boolean dragging = false;
+
+        private final Runnable ticker = new Runnable() {
+            @Override public void run() {
+                if (scroller.computeScrollOffset()) {
+                    scrollY = scroller.getCurrY();
+                    scrollY = clampScrollY(scrollY);
+                    invalidate();
+                    postOnAnimation(this);
+                } else {
+                    // snap to nearest integer
+                    int target = Math.round(scrollY / itemPx());
+                    target = Math.max(MIN_VAL, Math.min(MAX_VAL, target));
+                    float targetPx = target * itemPx();
+                    if (Math.abs(scrollY - targetPx) > 0.5f) {
+                        scroller.startScroll(0, (int) scrollY, 0, (int)(targetPx - scrollY), 150);
+                        postOnAnimation(this);
+                    } else {
+                        scrollY = targetPx;
+                        invalidate();
+                    }
+                }
+            }
+        };
 
         BitratePicker(Context c) {
             super(c);
+            scroller = new OverScroller(c);
+            scrollY = 3 * itemPx(); // default value = 3
             setClickable(true);
         }
 
         int getValue() {
-            return value;
+            return Math.max(MIN_VAL, Math.min(MAX_VAL, Math.round(scrollY / itemPx())));
         }
 
-        void setValue(int value) {
-            this.value = Math.max(1, Math.min(20, value));
+        void setValue(int v) {
+            v = Math.max(MIN_VAL, Math.min(MAX_VAL, v));
+            scrollY = v * itemPx();
             invalidate();
         }
 
-        @Override public boolean onTouchEvent(MotionEvent event) {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                lastY = event.getY();
-                return true;
-            }
-            if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                float dy = event.getY() - lastY;
-                if (Math.abs(dy) >= dp(18)) {
-                    int steps = Math.round(dy / dp(24));
-                    setValue(value - steps);
-                    lastY = event.getY();
-                }
-                return true;
-            }
-            if (event.getAction() == MotionEvent.ACTION_UP) {
-                float center = getHeight() / 2f;
-                int offset = Math.round((event.getY() - center) / dp(24));
-                if (Math.abs(offset) > 0) setValue(value + offset);
-                return true;
+        private float itemPx() { return dp(ITEM_DP); }
+
+        private float clampScrollY(float y) {
+            return Math.max(MIN_VAL * itemPx(), Math.min(MAX_VAL * itemPx(), y));
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            switch (e.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    scroller.abortAnimation();
+                    removeCallbacks(ticker);
+                    dragging = true;
+                    lastTouchY = e.getY();
+                    if (vt == null) vt = VelocityTracker.obtain();
+                    else vt.clear();
+                    vt.addMovement(e);
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                    return true;
+
+                case MotionEvent.ACTION_MOVE:
+                    if (!dragging) return true;
+                    vt.addMovement(e);
+                    float dy = e.getY() - lastTouchY; // 手指下移 dy 正 → scrollY 增大 → 数值增大
+                    lastTouchY = e.getY();
+                    scrollY += dy;
+                    // boundary resistance
+                    float minPx = MIN_VAL * itemPx();
+                    float maxPx = MAX_VAL * itemPx();
+                    if (scrollY < minPx) scrollY = minPx + (scrollY - minPx) * 0.25f;
+                    if (scrollY > maxPx) scrollY = maxPx + (scrollY - maxPx) * 0.25f;
+                    invalidate();
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    dragging = false;
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                    if (vt != null) {
+                        vt.addMovement(e);
+                        vt.computeCurrentVelocity(1000);
+                        float vy = vt.getYVelocity(); // 手指下移速度为正 → scrollY 增大
+                        vt.recycle();
+                        vt = null;
+                        // snap scrollY back into hard bounds first
+                        scrollY = clampScrollY(scrollY);
+                        if (Math.abs(vy) > 300) {
+                            scroller.fling(0, (int) scrollY, 0, (int) vy,
+                                    0, 0,
+                                    (int)(MIN_VAL * itemPx()), (int)(MAX_VAL * itemPx()));
+                        } else {
+                            // just snap
+                            int target = Math.max(MIN_VAL, Math.min(MAX_VAL,
+                                    Math.round(scrollY / itemPx())));
+                            scroller.startScroll(0, (int) scrollY, 0,
+                                    (int)(target * itemPx() - scrollY), 180);
+                        }
+                        postOnAnimation(ticker);
+                    }
+                    return true;
             }
             return true;
         }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            paint.setShader(null);
-            paint.setColor(Color.argb(61, 0, 0, 0));
-            canvas.drawRect(0, getHeight() / 2f - dp(16.5f), getWidth(), getHeight() / 2f + dp(16.5f), paint);
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f;
+            float item = itemPx();
 
-            int[] sizes = {10, 12, 14, 16, 14, 12, 10};
-            int[] alphas = {61, 102, 204, 255, 204, 102, 61};
-            for (int i = -3; i <= 3; i++) {
-                int option = value + i;
-                if (option < 1 || option > 20) continue;
-                int slot = i + 3;
+            // selection highlight bar
+            paint.setShader(null);
+            paint.setColor(Color.argb(50, 200, 210, 255));
+            canvas.drawRect(0, cy - item / 2f, getWidth(), cy + item / 2f, paint);
+
+            // draw items
+            // centerValue (possibly fractional) = scrollY / item
+            float centerVal = scrollY / item;
+            int lo = (int) Math.floor(centerVal) - 3;
+            int hi = (int) Math.ceil(centerVal) + 3;
+            for (int v = lo; v <= hi; v++) {
+                if (v < MIN_VAL || v > MAX_VAL) continue;
+                // pixel offset of this value from view center
+                float offsetPx = (v - centerVal) * item;
+                float slotY = cy - offsetPx; // v > centerVal → above center
+                float dist = Math.abs(slotY - cy);
+                float distNorm = dist / (getHeight() / 2f);
+                if (distNorm > 1.05f) continue;
+
+                float alpha = Math.max(0f, 1f - distNorm * 1.2f);
+                float sizeDp = 10f + 6f * (float) Math.pow(1f - distNorm, 1.5f);
                 paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTypeface(Typeface.DEFAULT);
-                paint.setTextSize(dp(sizes[slot]));
-                paint.setColor(Color.argb(alphas[slot], 234, 247, 255));
+                paint.setTypeface(distNorm < 0.12f ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                paint.setTextSize(dp(sizeDp));
+                paint.setColor(Color.argb((int)(alpha * 255), 234, 247, 255));
                 Paint.FontMetrics fm = paint.getFontMetrics();
-                float y = getHeight() / 2f + i * dp(24) - (fm.ascent + fm.descent) / 2f;
-                canvas.drawText(option + " Mbps", getWidth() / 2f, y, paint);
+                canvas.drawText(v + " Mbps", cx, slotY - (fm.ascent + fm.descent) / 2f, paint);
             }
+
+            // fade overlay top
+            paint.setShader(new LinearGradient(0, 0, 0, cy - item / 2f,
+                    Color.argb(210, 65, 73, 82), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, getWidth(), cy - item / 2f, paint);
+            // fade overlay bottom
+            paint.setShader(new LinearGradient(0, cy + item / 2f, 0, getHeight(),
+                    Color.TRANSPARENT, Color.argb(210, 65, 73, 82), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, cy + item / 2f, getWidth(), getHeight(), paint);
+            paint.setShader(null);
         }
     }
 
