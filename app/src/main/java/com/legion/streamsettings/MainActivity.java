@@ -631,20 +631,61 @@ final class SettingsPanel extends FrameLayout {
     }
 
     private View overlayCard(Context c, String name, String value, float progress, int bgRes, int materialRes, boolean keyboard) {
-        FrameLayout shell = new FrameLayout(c);
+        // Shell 继承 LinearLayout，背景/scrim/border 全在 dispatchDraw 里画，不占子 view 高度
+        android.graphics.Bitmap bgBitmap = BitmapFactory.decodeResource(getResources(), bgRes);
+        LinearLayout shell = new LinearLayout(c) {
+            private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final Paint scrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final android.graphics.RectF rf = new android.graphics.RectF();
+            private final float r = dp(2);
+            { setWillNotDraw(false); }
+            @Override protected void dispatchDraw(Canvas canvas) {
+                float w = getWidth(), h = getHeight();
+                rf.set(0, 0, w, h);
+                // 背景渐变
+                bgPaint.setShader(new LinearGradient(0, 0, 0, h,
+                        Color.rgb(45, 50, 56), Color.rgb(38, 44, 52), Shader.TileMode.CLAMP));
+                canvas.drawRoundRect(rf, r, r, bgPaint);
+                bgPaint.setShader(null);
+                // bg 图片 CENTER_CROP，0.82 透明度
+                if (bgBitmap != null) {
+                    canvas.save();
+                    android.graphics.Path clip = new android.graphics.Path();
+                    clip.addRoundRect(rf, r, r, android.graphics.Path.Direction.CW);
+                    canvas.clipPath(clip);
+                    float bw = bgBitmap.getWidth(), bh = bgBitmap.getHeight();
+                    float scale = Math.max(w / bw, h / bh);
+                    float dw = bw * scale, dh = bh * scale;
+                    bgPaint.setAlpha(Math.round(0.82f * 255));
+                    canvas.drawBitmap(bgBitmap,
+                            new android.graphics.Rect(0, 0, (int)bw, (int)bh),
+                            new android.graphics.RectF((w - dw) / 2f, (h - dh) / 2f, (w + dw) / 2f, (h + dh) / 2f),
+                            bgPaint);
+                    bgPaint.setAlpha(255);
+                    canvas.restore();
+                }
+                // scrim
+                scrimPaint.setShader(new LinearGradient(0, 0, 0, h,
+                        Color.rgb(45, 50, 56), Color.argb(0, 45, 50, 56), Shader.TileMode.CLAMP));
+                canvas.drawRoundRect(rf, r, r, scrimPaint);
+                scrimPaint.setShader(null);
+                // 子 view
+                super.dispatchDraw(canvas);
+                // border（画在最上层）
+                float stroke = Math.max(1f, d * 0.5f);
+                float inset = stroke / 2f;
+                borderPaint.setColor(Color.argb(26, 234, 247, 255));
+                borderPaint.setStyle(Paint.Style.STROKE);
+                borderPaint.setStrokeWidth(stroke);
+                rf.set(inset, inset, w - inset, h - inset);
+                canvas.drawRoundRect(rf, r, r, borderPaint);
+                borderPaint.setStyle(Paint.Style.FILL);
+            }
+        };
+        shell.setOrientation(LinearLayout.VERTICAL);
         shell.setClipChildren(true);
         shell.setClipToOutline(true);
-        shell.setBackground(new OverlayCardDrawable(dp(2)));
-
-        ImageView bg = new ImageView(c);
-        bg.setImageResource(bgRes);
-        bg.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        bg.setAlpha(0.82f);
-        shell.addView(bg, new FrameLayout.LayoutParams(-1, -1));
-        shell.addView(new CardScrim(c), new FrameLayout.LayoutParams(-1, -1));
-
-        LinearLayout card = new LinearLayout(c);
-        card.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout controls = new LinearLayout(c);
         controls.setOrientation(LinearLayout.VERTICAL);
@@ -674,15 +715,13 @@ final class SettingsPanel extends FrameLayout {
             number.setText(percent + "%");
             previewContent.setAlpha(opacity);
         }), sliderParams);
-        card.addView(controls, new LinearLayout.LayoutParams(-1, dp(96)));
+        shell.addView(controls, new LinearLayout.LayoutParams(-1, -2));
 
         FrameLayout.LayoutParams previewContentParams = new FrameLayout.LayoutParams(dp(276), dp(160), Gravity.CENTER);
         preview.addView(previewContent, previewContentParams);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(160));
         previewParams.topMargin = dp(12);
-        card.addView(preview, previewParams);
-        shell.addView(card, new FrameLayout.LayoutParams(-1, dp(268)));
-        shell.addView(new CardBorder(c), new FrameLayout.LayoutParams(-1, -1));
+        shell.addView(preview, previewParams);
         return shell;
     }
 
@@ -1135,10 +1174,4 @@ final class SettingsPanel extends FrameLayout {
         }
     }
 
-    private final class OverlayCardDrawable extends GradientDrawable {
-        OverlayCardDrawable(int radius) {
-            super(Orientation.TOP_BOTTOM, new int[]{Color.rgb(45, 50, 56), Color.rgb(38, 44, 52)});
-            setCornerRadius(radius);
-        }
-    }
 }
