@@ -148,7 +148,6 @@ final class SettingsPanel extends FrameLayout {
         GradientDrawable g = new GradientDrawable();
         g.setColor(surface);
         g.setCornerRadius(dp(12));
-        g.setStroke(Math.max(1, dp(0.5f)), Color.argb(61, 255, 255, 255));
         return g;
     }
 
@@ -179,8 +178,7 @@ final class SettingsPanel extends FrameLayout {
         FrameLayout left = new FrameLayout(c);
         if (back) {
             ImageView arrow = new ImageView(c);
-            arrow.setImageResource(R.drawable.ic_arrow_right);
-            arrow.setRotation(180f);
+            arrow.setImageResource(R.drawable.ic_arrow_left);
             left.addView(arrow, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
             left.setOnClickListener(v -> showMainPage());
         }
@@ -345,9 +343,9 @@ final class SettingsPanel extends FrameLayout {
             input.setBackground(inputBg);
             TextView value = text(customValue, 12, textTertiary, 0);
             input.addView(value, new LinearLayout.LayoutParams(0, -1, 1));
-            TextView sort = text("▲\n▼", 8, textTertiary, 0);
-            sort.setGravity(Gravity.CENTER);
-            input.addView(sort, new LinearLayout.LayoutParams(dp(16), -1));
+            ImageView sort = new ImageView(c);
+            sort.setImageResource(R.drawable.ic_sort);
+            input.addView(sort, new LinearLayout.LayoutParams(dp(16), dp(16)));
             row.addView(input, new LinearLayout.LayoutParams(dp(120), dp(32)));
         }
 
@@ -364,7 +362,7 @@ final class SettingsPanel extends FrameLayout {
         LinearLayout dialog = new LinearLayout(c);
         dialog.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{Color.rgb(65, 73, 82), Color.rgb(65, 73, 82)});
+                new int[]{Color.rgb(58, 64, 71), Color.rgb(58, 64, 71)});
         bg.setCornerRadius(dp(12));
         bg.setStroke(Math.max(1, dp(0.5f)), Color.argb(77, 200, 199, 254));
         dialog.setBackground(bg);
@@ -771,7 +769,7 @@ final class SettingsPanel extends FrameLayout {
 
         private View line() {
             View v = new View(getContext());
-            v.setBackgroundColor(Color.argb(20, 234, 247, 255));
+            v.setBackgroundColor(Color.argb(13, 234, 247, 255));
             return v;
         }
     }
@@ -806,10 +804,11 @@ final class SettingsPanel extends FrameLayout {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float inset = Math.max(1, dp(0.5f)) / 2f;
+            float stroke = Math.max(1f, d * 0.5f);
+            float inset = stroke / 2f;
             paint.setColor(Color.argb(26, 234, 247, 255));
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(Math.max(1, dp(0.5f)));
+            paint.setStrokeWidth(stroke);
             canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset, dp(2), dp(2), paint);
             paint.setStyle(Paint.Style.FILL);
         }
@@ -824,7 +823,7 @@ final class SettingsPanel extends FrameLayout {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float stroke = Math.max(1, dp(0.5f));
+            float stroke = Math.max(1f, d * 0.5f);
             float inset = stroke / 2f;
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(stroke);
@@ -839,9 +838,15 @@ final class SettingsPanel extends FrameLayout {
         private static final int MAX_VAL = 20;
         private static final float ITEM_DP = 36f;
 
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fadePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint hlPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final OverScroller scroller;
         private VelocityTracker vt;
+
+        // cached fade gradients — rebuilt only when view size changes
+        private LinearGradient fadeTop, fadeBot;
+        private int cachedW, cachedH;
 
         // Single source of truth: scrollY in pixels.
         // scrollY = N * itemPx()  means value N is centered.
@@ -860,13 +865,15 @@ final class SettingsPanel extends FrameLayout {
                     invalidate();
                     postOnAnimation(this);
                 } else {
-                    // snap to nearest integer
-                    int target = Math.round(scrollY / itemPx());
-                    target = Math.max(MIN_VAL, Math.min(MAX_VAL, target));
+                    // fling done — snap to nearest integer with short animation
+                    int target = Math.max(MIN_VAL, Math.min(MAX_VAL,
+                            Math.round(scrollY / itemPx())));
                     float targetPx = target * itemPx();
-                    if (Math.abs(scrollY - targetPx) > 0.5f) {
-                        scroller.startScroll(0, (int) scrollY, 0, (int)(targetPx - scrollY), 150);
-                        postOnAnimation(this);
+                    if (Math.abs(scrollY - targetPx) > 1f) {
+                        // use startScroll for the remaining sub-item distance
+                        scroller.startScroll(0, Math.round(scrollY), 0,
+                                Math.round(targetPx - scrollY), 120);
+                        postOnAnimation(this); // keep ticking through snap animation
                     } else {
                         scrollY = targetPx;
                         invalidate();
@@ -974,43 +981,45 @@ final class SettingsPanel extends FrameLayout {
             float item = itemPx();
 
             // selection highlight bar
-            paint.setShader(null);
-            paint.setColor(Color.argb(50, 200, 210, 255));
-            canvas.drawRect(0, cy - item / 2f, getWidth(), cy + item / 2f, paint);
+            hlPaint.setColor(Color.argb(61, 0, 0, 0));
+            canvas.drawRect(0, cy - item / 2f, getWidth(), cy + item / 2f, hlPaint);
+
+            // rebuild fade gradients only when size changes
+            if (getWidth() != cachedW || getHeight() != cachedH) {
+                cachedW = getWidth();
+                cachedH = getHeight();
+                fadeTop = new LinearGradient(0, 0, 0, cy - item / 2f,
+                        Color.argb(210, 58, 64, 71), Color.TRANSPARENT, Shader.TileMode.CLAMP);
+                fadeBot = new LinearGradient(0, cy + item / 2f, 0, getHeight(),
+                        Color.TRANSPARENT, Color.argb(210, 58, 64, 71), Shader.TileMode.CLAMP);
+            }
 
             // draw items
-            // centerValue (possibly fractional) = scrollY / item
             float centerVal = scrollY / item;
             int lo = (int) Math.floor(centerVal) - 3;
             int hi = (int) Math.ceil(centerVal) + 3;
             for (int v = lo; v <= hi; v++) {
                 if (v < MIN_VAL || v > MAX_VAL) continue;
-                // pixel offset of this value from view center
                 float offsetPx = (v - centerVal) * item;
-                float slotY = cy - offsetPx; // v > centerVal → above center
-                float dist = Math.abs(slotY - cy);
-                float distNorm = dist / (getHeight() / 2f);
+                float slotY = cy - offsetPx;
+                float distNorm = Math.abs(slotY - cy) / (getHeight() / 2f);
                 if (distNorm > 1.05f) continue;
 
                 float alpha = Math.max(0f, 1f - distNorm * 1.2f);
                 float sizeDp = 10f + 6f * (float) Math.pow(1f - distNorm, 1.5f);
-                paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTypeface(distNorm < 0.12f ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-                paint.setTextSize(dp(sizeDp));
-                paint.setColor(Color.argb((int)(alpha * 255), 234, 247, 255));
-                Paint.FontMetrics fm = paint.getFontMetrics();
-                canvas.drawText(v + " Mbps", cx, slotY - (fm.ascent + fm.descent) / 2f, paint);
+                textPaint.setTextAlign(Paint.Align.CENTER);
+                textPaint.setTypeface(distNorm < 0.12f ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                textPaint.setTextSize(dp(sizeDp));
+                textPaint.setColor(Color.argb((int)(alpha * 255), 234, 247, 255));
+                Paint.FontMetrics fm = textPaint.getFontMetrics();
+                canvas.drawText(v + " Mbps", cx, slotY - (fm.ascent + fm.descent) / 2f, textPaint);
             }
 
-            // fade overlay top
-            paint.setShader(new LinearGradient(0, 0, 0, cy - item / 2f,
-                    Color.argb(210, 65, 73, 82), Color.TRANSPARENT, Shader.TileMode.CLAMP));
-            canvas.drawRect(0, 0, getWidth(), cy - item / 2f, paint);
-            // fade overlay bottom
-            paint.setShader(new LinearGradient(0, cy + item / 2f, 0, getHeight(),
-                    Color.TRANSPARENT, Color.argb(210, 65, 73, 82), Shader.TileMode.CLAMP));
-            canvas.drawRect(0, cy + item / 2f, getWidth(), getHeight(), paint);
-            paint.setShader(null);
+            // fade overlay — always drawn last, on top of text
+            fadePaint.setShader(fadeTop);
+            canvas.drawRect(0, 0, getWidth(), cy - item / 2f, fadePaint);
+            fadePaint.setShader(fadeBot);
+            canvas.drawRect(0, cy + item / 2f, getWidth(), getHeight(), fadePaint);
         }
     }
 
@@ -1060,7 +1069,7 @@ final class SettingsPanel extends FrameLayout {
             super.onDraw(canvas);
             float cy = getHeight() / 2f;
             float trackH = dp(6);
-            float radius = dp(3);
+            float trackInset = dp(1);
             float knobW = dp(28);
             float knobH = dp(18);
             float left = Math.max(0, Math.min(getWidth() - knobW, (getWidth() - knobW) * progress));
@@ -1068,11 +1077,24 @@ final class SettingsPanel extends FrameLayout {
 
             paint.setShader(null);
             paint.setColor(Color.rgb(31, 37, 45));
-            canvas.drawRoundRect(0, cy - trackH / 2f, getWidth(), cy + trackH / 2f, radius, radius, paint);
+            float trackTop = cy - trackH / 2f;
+            float trackBottom = cy + trackH / 2f;
+            float trackHighlightH = dp(0.5f);
+            canvas.drawRect(0, trackTop, getWidth(), trackBottom, paint);
+            paint.setColor(Color.argb(77, 255, 255, 255));
+            canvas.drawRect(0, trackBottom, getWidth(), trackBottom + trackHighlightH, paint);
+            paint.setAlpha(255);
 
             float progressEnd = progress >= 0.995f ? getWidth() : knobCenter;
-            paint.setShader(new LinearGradient(0, cy, progressEnd, cy, Color.rgb(226, 239, 247), Color.rgb(184, 202, 214), Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(0, cy - trackH / 2f, progressEnd, cy + trackH / 2f, radius, radius, paint);
+            float innerLeft = trackInset;
+            float innerRight = Math.max(innerLeft, progressEnd - trackInset);
+            float innerTop = trackTop + trackInset;
+            float innerBottom = trackBottom - trackInset;
+            if (innerRight > innerLeft && innerBottom > innerTop) {
+                paint.setShader(new LinearGradient(innerLeft, cy, innerRight, cy,
+                        Color.rgb(228, 241, 250), Color.rgb(186, 204, 216), Shader.TileMode.CLAMP));
+                canvas.drawRect(innerLeft, innerTop, innerRight, innerBottom, paint);
+            }
             paint.setShader(null);
 
             paint.setShadowLayer(dp(6), 0, dp(3), Color.argb(36, 0, 0, 0));
@@ -1085,9 +1107,17 @@ final class SettingsPanel extends FrameLayout {
             paint.setStrokeWidth(Math.max(1, dp(0.5f)));
             canvas.drawRoundRect(left, cy - knobH / 2f, left + knobW, cy + knobH / 2f, dp(4), dp(4), paint);
             paint.setStyle(Paint.Style.FILL);
+            float gripW = Math.max(0.75f, d * 0.75f);
+            float gripTop = cy - dp(4);
+            float gripBottom = cy + dp(4);
+            float firstGrip = left + dp(10.5f);
+            float secondGrip = left + dp(17.5f);
+            paint.setColor(Color.argb(72, 255, 255, 255));
+            canvas.drawRoundRect(firstGrip, gripTop + d, firstGrip + gripW, gripBottom + d, gripW / 2f, gripW / 2f, paint);
+            canvas.drawRoundRect(secondGrip, gripTop + d, secondGrip + gripW, gripBottom + d, gripW / 2f, gripW / 2f, paint);
             paint.setColor(Color.argb(61, 0, 0, 0));
-            canvas.drawRoundRect(left + dp(10), cy - dp(4), left + dp(11), cy + dp(4), dp(1), dp(1), paint);
-            canvas.drawRoundRect(left + dp(17), cy - dp(4), left + dp(18), cy + dp(4), dp(1), dp(1), paint);
+            canvas.drawRoundRect(firstGrip, gripTop, firstGrip + gripW, gripBottom, gripW / 2f, gripW / 2f, paint);
+            canvas.drawRoundRect(secondGrip, gripTop, secondGrip + gripW, gripBottom, gripW / 2f, gripW / 2f, paint);
         }
     }
 
@@ -1107,7 +1137,6 @@ final class SettingsPanel extends FrameLayout {
         OverlayCardDrawable(int radius) {
             super(Orientation.TOP_BOTTOM, new int[]{Color.rgb(45, 50, 56), Color.rgb(38, 44, 52)});
             setCornerRadius(radius);
-            setStroke(Math.max(1, dp(0.5f)), Color.argb(26, 234, 247, 255));
         }
     }
 }
