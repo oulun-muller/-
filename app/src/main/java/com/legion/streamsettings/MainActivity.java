@@ -169,18 +169,37 @@ final class SettingsPanel extends FrameLayout {
         showMainPage();
     }
 
-    private LinearLayout nav(Context c, String titleText, boolean back) {
+    private LinearLayout mainNav(Context c) {
+        LinearLayout nav = new LinearLayout(c);
+        nav.setGravity(Gravity.CENTER_VERTICAL);
+        nav.setPadding(dp(12), 0, dp(12), 0);
+
+        TextView title = text("设置", 14, textPrimary, 0);
+        title.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        nav.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
+
+        FrameLayout right = new FrameLayout(c);
+        ImageView close = new ImageView(c);
+        close.setImageResource(R.drawable.ic_close_large);
+        close.setAlpha(0.9f);
+        right.addView(close, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+        right.setOnClickListener(v -> {
+            if (onCloseListener != null) onCloseListener.run();
+        });
+        nav.addView(right, new LinearLayout.LayoutParams(dp(24), -1));
+        return nav;
+    }
+
+    private LinearLayout subNav(Context c, String titleText) {
         LinearLayout nav = new LinearLayout(c);
         nav.setGravity(Gravity.CENTER_VERTICAL);
         nav.setPadding(dp(12), 0, dp(12), 0);
 
         FrameLayout left = new FrameLayout(c);
-        if (back) {
-            ImageView arrow = new ImageView(c);
-            arrow.setImageResource(R.drawable.ic_arrow_left);
-            left.addView(arrow, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
-            left.setOnClickListener(v -> showMainPage());
-        }
+        ImageView arrow = new ImageView(c);
+        arrow.setImageResource(R.drawable.ic_arrow_left);
+        left.addView(arrow, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+        left.setOnClickListener(v -> showMainPage());
         nav.addView(left, new LinearLayout.LayoutParams(dp(24), -1));
 
         TextView title = text(titleText, 14, textPrimary, 0);
@@ -188,15 +207,6 @@ final class SettingsPanel extends FrameLayout {
         nav.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
 
         FrameLayout right = new FrameLayout(c);
-        if (!back) {
-            ImageView close = new ImageView(c);
-            close.setImageResource(R.drawable.ic_close_large);
-            close.setAlpha(0.9f);
-            right.addView(close, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
-            right.setOnClickListener(v -> {
-                if (onCloseListener != null) onCloseListener.run();
-            });
-        }
         nav.addView(right, new LinearLayout.LayoutParams(dp(24), -1));
         return nav;
     }
@@ -234,7 +244,7 @@ final class SettingsPanel extends FrameLayout {
     private void showMainPage() {
         Context c = getContext();
         root.removeAllViews();
-        root.addView(nav(c, "设置", false), new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(mainNav(c), new LinearLayout.LayoutParams(-1, dp(48)));
         root.addView(divider(c), new LinearLayout.LayoutParams(-1, Math.max(1, dp(0.5f))));
         LinearLayout content = contentHost(c, 12);
         addWithGap(content, new DisplayCard(c), 0);
@@ -278,7 +288,7 @@ final class SettingsPanel extends FrameLayout {
     private void showOptionPage(String title, OptionItem[] items, boolean bitrate) {
         Context c = getContext();
         root.removeAllViews();
-        root.addView(nav(c, title, true), new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(subNav(c, title), new LinearLayout.LayoutParams(-1, dp(48)));
         root.addView(divider(c), new LinearLayout.LayoutParams(-1, Math.max(1, dp(0.5f))));
         LinearLayout content = contentHost(c, 0);
         for (int i = 0; i < items.length; i++) {
