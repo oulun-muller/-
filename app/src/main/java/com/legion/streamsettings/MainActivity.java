@@ -129,8 +129,6 @@ final class SettingsPanel extends FrameLayout {
     private int pendingCustomBitrate = 3;
     private Runnable onCloseListener;
 
-    interface CloseListener { void onClose(); }
-
     void setOnCloseListener(Runnable l) { this.onCloseListener = l; }
 
     SettingsPanel(Context c) {
@@ -148,6 +146,7 @@ final class SettingsPanel extends FrameLayout {
         GradientDrawable g = new GradientDrawable();
         g.setColor(surface);
         g.setCornerRadius(dp(12));
+        g.setStroke(Math.max(1, dp(0.5f)), Color.argb(61, 255, 255, 255));
         return g;
     }
 
@@ -252,7 +251,7 @@ final class SettingsPanel extends FrameLayout {
     }
 
     private String frameRateValue() {
-        if (frameRateIndex == 1) return "90帧";
+        if (frameRateIndex == 1) return "60帧";
         if (frameRateIndex == 2) return "90帧";
         if (frameRateIndex == 3) return "144帧";
         return "30帧";
@@ -270,9 +269,9 @@ final class SettingsPanel extends FrameLayout {
     private void showFrameRatePage() {
         showOptionPage("帧率（流畅度）", new OptionItem[]{
                 new OptionItem("30帧", "省流省电，适合文字办公"),
-                new OptionItem("90帧", "省流省电，适合文字办公"),
+                new OptionItem("60帧", "均衡流畅，适合日常使用"),
                 new OptionItem("90帧", "高度流畅，适合演示"),
-                new OptionItem("144帧", "高度流畅，适合演示")
+                new OptionItem("144帧", "极致流畅，适合高性能设备")
         }, false);
     }
 
@@ -343,9 +342,9 @@ final class SettingsPanel extends FrameLayout {
             input.setBackground(inputBg);
             TextView value = text(customValue, 12, textTertiary, 0);
             input.addView(value, new LinearLayout.LayoutParams(0, -1, 1));
-            ImageView sort = new ImageView(c);
-            sort.setImageResource(R.drawable.ic_sort);
-            input.addView(sort, new LinearLayout.LayoutParams(dp(16), dp(16)));
+            ImageView sortIcon = new ImageView(c);
+            sortIcon.setImageResource(R.drawable.ic_sort);
+            input.addView(sortIcon, new LinearLayout.LayoutParams(dp(16), dp(16)));
             row.addView(input, new LinearLayout.LayoutParams(dp(120), dp(32)));
         }
 
@@ -677,9 +676,7 @@ final class SettingsPanel extends FrameLayout {
         }), sliderParams);
         card.addView(controls, new LinearLayout.LayoutParams(-1, dp(96)));
 
-        FrameLayout.LayoutParams previewContentParams = keyboard
-                ? new FrameLayout.LayoutParams(dp(276), dp(160), Gravity.CENTER)
-                : new FrameLayout.LayoutParams(dp(276), dp(160), Gravity.CENTER);
+        FrameLayout.LayoutParams previewContentParams = new FrameLayout.LayoutParams(dp(276), dp(160), Gravity.CENTER);
         preview.addView(previewContent, previewContentParams);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(160));
         previewParams.topMargin = dp(12);
@@ -951,24 +948,29 @@ final class SettingsPanel extends FrameLayout {
                     if (vt != null) {
                         vt.addMovement(e);
                         vt.computeCurrentVelocity(1000);
-                        float vy = vt.getYVelocity(); // 手指下移速度为正 → scrollY 增大
+                        float vy = vt.getYVelocity();
                         vt.recycle();
                         vt = null;
-                        // snap scrollY back into hard bounds first
                         scrollY = clampScrollY(scrollY);
                         if (Math.abs(vy) > 300) {
                             scroller.fling(0, (int) scrollY, 0, (int) vy,
                                     0, 0,
                                     (int)(MIN_VAL * itemPx()), (int)(MAX_VAL * itemPx()));
                         } else {
-                            // just snap
                             int target = Math.max(MIN_VAL, Math.min(MAX_VAL,
                                     Math.round(scrollY / itemPx())));
                             scroller.startScroll(0, (int) scrollY, 0,
                                     (int)(target * itemPx() - scrollY), 180);
                         }
-                        postOnAnimation(ticker);
+                    } else {
+                        // vt 为 null（罕见），直接 snap 到最近整数
+                        scrollY = clampScrollY(scrollY);
+                        int target = Math.max(MIN_VAL, Math.min(MAX_VAL,
+                                Math.round(scrollY / itemPx())));
+                        scroller.startScroll(0, (int) scrollY, 0,
+                                (int)(target * itemPx() - scrollY), 180);
                     }
+                    postOnAnimation(ticker);
                     return true;
             }
             return true;
