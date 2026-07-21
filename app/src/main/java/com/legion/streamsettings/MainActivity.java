@@ -60,6 +60,59 @@ final class SettingsSurface extends FrameLayout {
         LayoutParams params = new LayoutParams(dp(panelWidth), dp(panelHeight), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         params.rightMargin = dp(8);
         addView(panel, params);
+
+        // 入场动画：从右侧滑入 + 淡入
+        panel.setAlpha(0f);
+        panel.setTranslationX(dp(panelWidth + 8));
+        panel.animate()
+                .translationX(0f)
+                .alpha(1f)
+                .setDuration(320)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f))
+                .start();
+
+        // 演示用唤起按钮，屏幕左侧居中，交付时移除
+        View trigger = new View(c) {
+            @Override protected void onDraw(android.graphics.Canvas canvas) {
+                android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                p.setColor(Color.argb(180, 56, 110, 254));
+                canvas.drawRoundRect(0, 0, getWidth(), getHeight(), dp(4), dp(4), p);
+                p.setColor(Color.argb(230, 234, 247, 255));
+                p.setTextSize(dp(11));
+                p.setTextAlign(android.graphics.Paint.Align.CENTER);
+                android.graphics.Paint.FontMetrics fm = p.getFontMetrics();
+                canvas.drawText("设置", getWidth() / 2f, getHeight() / 2f - (fm.ascent + fm.descent) / 2f, p);
+            }
+        };
+        trigger.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        trigger.setOnClickListener(v -> {
+            panel.setVisibility(View.VISIBLE);
+            panel.setAlpha(0f);
+            panel.setTranslationX(dp(panelWidth + 8));
+            panel.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(320)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator(2f))
+                    .start();
+        });
+        LayoutParams triggerParams = new LayoutParams(dp(32), dp(56), Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        triggerParams.leftMargin = dp(4);
+        addView(trigger, triggerParams);
+
+        // 关闭按钮回调：面板淡出后隐藏
+        panel.setOnCloseListener(() -> {
+            panel.animate()
+                    .translationX(dp(panelWidth + 8))
+                    .alpha(0f)
+                    .setDuration(280)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator(2f))
+                    .withEndAction(() -> {
+                        panel.setVisibility(View.GONE);
+                        panel.setTranslationX(0f);
+                    })
+                    .start();
+        });
     }
 }
 
@@ -74,6 +127,11 @@ final class SettingsPanel extends FrameLayout {
     private int frameRateIndex = 0;
     private int customBitrate = 3;
     private int pendingCustomBitrate = 3;
+    private Runnable onCloseListener;
+
+    interface CloseListener { void onClose(); }
+
+    void setOnCloseListener(Runnable l) { this.onCloseListener = l; }
 
     SettingsPanel(Context c) {
         super(c);
@@ -89,7 +147,7 @@ final class SettingsPanel extends FrameLayout {
     private GradientDrawable panelBg() {
         GradientDrawable g = new GradientDrawable();
         g.setColor(surface);
-        g.setCornerRadius(dp(8));
+        g.setCornerRadius(dp(12));
         g.setStroke(Math.max(1, dp(0.5f)), Color.argb(61, 255, 255, 255));
         return g;
     }
@@ -138,6 +196,9 @@ final class SettingsPanel extends FrameLayout {
             close.setImageResource(R.drawable.ic_close_large);
             close.setAlpha(0.9f);
             right.addView(close, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+            right.setOnClickListener(v -> {
+                if (onCloseListener != null) onCloseListener.run();
+            });
         }
         nav.addView(right, new LinearLayout.LayoutParams(dp(24), -1));
         return nav;
@@ -304,9 +365,12 @@ final class SettingsPanel extends FrameLayout {
         dialog.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{Color.rgb(65, 73, 82), Color.rgb(65, 73, 82)});
-        bg.setCornerRadius(dp(4));
+        bg.setCornerRadius(dp(12));
         bg.setStroke(Math.max(1, dp(0.5f)), Color.argb(77, 200, 199, 254));
         dialog.setBackground(bg);
+        // clip 子视图到圆角轮廓，避免 BitratePicker 绘制内容盖住顶部圆角
+        dialog.setClipToOutline(true);
+        dialog.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
 
         BitratePicker picker = new BitratePicker(c);
         picker.setValue(pendingCustomBitrate);
@@ -316,20 +380,42 @@ final class SettingsPanel extends FrameLayout {
         buttons.setGravity(Gravity.CENTER_VERTICAL);
         buttons.setPadding(dp(12), dp(12), dp(12), dp(12));
         buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(dialogButton(c, "取消", Color.argb(38, 234, 247, 255), v -> removeView(shade)), buttonParams(0));
+
+        Runnable dismiss = () -> {
+            dialog.animate()
+                    .translationY(dp(40))
+                    .alpha(0f)
+                    .setDuration(220)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator(2f))
+                    .withEndAction(() -> removeView(shade))
+                    .start();
+            shade.animate().alpha(0f).setDuration(220).start();
+        };
+
+        buttons.addView(dialogButton(c, "取消", Color.argb(38, 234, 247, 255), v -> dismiss.run()), buttonParams(0));
         buttons.addView(dialogButton(c, "完成", Color.rgb(56, 110, 254), v -> {
             customBitrate = picker.getValue();
             pendingCustomBitrate = customBitrate;
             bitrateIndex = 4;
-            removeView(shade);
-            showBitratePage();
+            dismiss.run();
+            new Handler(Looper.getMainLooper()).postDelayed(this::showBitratePage, 220);
         }), buttonParams(8));
         dialog.addView(buttons, new LinearLayout.LayoutParams(-1, dp(56)));
 
         FrameLayout.LayoutParams dialogParams = new FrameLayout.LayoutParams(dp(240), dp(216), Gravity.CENTER);
         shade.addView(dialog, dialogParams);
         addView(shade, new LayoutParams(-1, -1));
-        shade.animate().alpha(1f).setDuration(160).start();
+
+        // 进场：从下往上 + 淡入
+        dialog.setTranslationY(dp(40));
+        dialog.setAlpha(0f);
+        shade.animate().alpha(1f).setDuration(240).start();
+        dialog.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .setDuration(300)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f))
+                .start();
     }
 
     private LinearLayout.LayoutParams buttonParams(int leftMargin) {
@@ -343,7 +429,7 @@ final class SettingsPanel extends FrameLayout {
         button.setGravity(Gravity.CENTER);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(color);
-        bg.setCornerRadius(dp(2));
+        bg.setCornerRadius(dp(4));
         button.setBackground(bg);
         button.setOnClickListener(listener);
         return button;
@@ -743,7 +829,7 @@ final class SettingsPanel extends FrameLayout {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(stroke);
             paint.setColor(Color.argb(61, 255, 255, 255));
-            canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset, dp(8), dp(8), paint);
+            canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset, dp(12), dp(12), paint);
             paint.setStyle(Paint.Style.FILL);
         }
     }
@@ -763,12 +849,14 @@ final class SettingsPanel extends FrameLayout {
         private float scrollY;
         private float lastTouchY;
         private boolean dragging = false;
+        private int lastHapticIndex = -1; // track last grid index for haptic
 
         private final Runnable ticker = new Runnable() {
             @Override public void run() {
                 if (scroller.computeScrollOffset()) {
                     scrollY = scroller.getCurrY();
                     scrollY = clampScrollY(scrollY);
+                    tickHaptic();
                     invalidate();
                     postOnAnimation(this);
                 } else {
@@ -790,7 +878,8 @@ final class SettingsPanel extends FrameLayout {
         BitratePicker(Context c) {
             super(c);
             scroller = new OverScroller(c);
-            scrollY = 3 * itemPx(); // default value = 3
+            scrollY = 3 * itemPx();
+            lastHapticIndex = 3;
             setClickable(true);
         }
 
@@ -801,6 +890,7 @@ final class SettingsPanel extends FrameLayout {
         void setValue(int v) {
             v = Math.max(MIN_VAL, Math.min(MAX_VAL, v));
             scrollY = v * itemPx();
+            lastHapticIndex = v;
             invalidate();
         }
 
@@ -808,6 +898,15 @@ final class SettingsPanel extends FrameLayout {
 
         private float clampScrollY(float y) {
             return Math.max(MIN_VAL * itemPx(), Math.min(MAX_VAL * itemPx(), y));
+        }
+
+        private void tickHaptic() {
+            int idx = Math.round(scrollY / itemPx());
+            if (idx != lastHapticIndex) {
+                lastHapticIndex = idx;
+                performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK,
+                        android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING);
+            }
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
@@ -834,6 +933,7 @@ final class SettingsPanel extends FrameLayout {
                     float maxPx = MAX_VAL * itemPx();
                     if (scrollY < minPx) scrollY = minPx + (scrollY - minPx) * 0.25f;
                     if (scrollY > maxPx) scrollY = maxPx + (scrollY - maxPx) * 0.25f;
+                    tickHaptic();
                     invalidate();
                     return true;
 
